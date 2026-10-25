@@ -18,6 +18,10 @@ def load_workflow(name):
 
 
 class CIWorkflowTests(unittest.TestCase):
+    def test_android_compile_sdk_follows_the_pinned_flutter_toolchain(self):
+        gradle = (ROOT / "android/app/build.gradle.kts").read_text()
+        self.assertIn("compileSdk = flutter.compileSdkVersion", gradle)
+
     def test_pr_and_main_use_the_same_secret_free_builds(self):
         workflow = load_workflow("integrate.yaml")
         events = workflow["on"]
@@ -36,6 +40,9 @@ class CIWorkflowTests(unittest.TestCase):
                 self.assertNotIn("secrets.", text)
                 self.assertNotIn("pull_request_target", text)
                 self.assertIn("flutter-version-file: .fvmrc", text)
+                for step in job["steps"]:
+                    if "uses" in step:
+                        self.assertRegex(step["uses"], r"^[\w-]+/[\w-]+@[0-9a-f]{40}$")
         for platform in ("android", "ios"):
             uploads = [
                 step
@@ -44,6 +51,16 @@ class CIWorkflowTests(unittest.TestCase):
             ]
             self.assertEqual(len(uploads), 1)
             self.assertEqual(uploads[0]["with"]["if-no-files-found"], "error")
+        android_commands = "\n".join(
+            step.get("run", "") for step in workflow["jobs"]["android"]["steps"]
+        )
+        ios_commands = "\n".join(
+            step.get("run", "") for step in workflow["jobs"]["ios"]["steps"]
+        )
+        self.assertIn("flutter build apk --debug", android_commands)
+        self.assertIn("--no-codesign", ios_commands)
+        self.assertIn("CODE_SIGNING_ALLOWED=NO", ios_commands)
+        self.assertIn("ARCHS=arm64", ios_commands)
 
     def test_upstream_publishing_and_secret_driven_automation_are_archived(self):
         for name in (

@@ -78,7 +78,16 @@ jobs:
       - name: Prepare screenshot fonts
         run: dart run golden_screenshot:download_apple_fonts
       - name: Run Flutter tests
+        id: flutter-tests
         run: flutter test --no-pub --reporter expanded
+      - name: Upload screenshot failure diagnostics
+        if: failure() && steps.flutter-tests.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wisp-screenshot-failures
+          path: test/screenshots/failures/
+          if-no-files-found: warn
+          retention-days: 7
 
   android:
     name: Android debug APK (ARM64)
@@ -100,7 +109,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
         with:
-          packages: platform-tools platforms;android-37
+          packages: platform-tools
           log-accepted-android-sdk-licenses: false
       - name: Resolve pinned Dart dependencies
         run: |
@@ -119,6 +128,8 @@ jobs:
     name: iOS simulator app (ARM64, unsigned)
     runs-on: macos-26
     timeout-minutes: 45
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
