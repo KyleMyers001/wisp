@@ -57,6 +57,7 @@ class CIWorkflowTests(unittest.TestCase):
                 text = yaml.dump(job)
                 self.assertNotIn("secrets.", text)
                 self.assertNotIn("pull_request_target", text)
+                self.assertNotIn("--update-goldens", text)
                 self.assertIn("flutter-version-file: .fvmrc", text)
                 for step in job["steps"]:
                     self.assertNotIn("continue-on-error", step)

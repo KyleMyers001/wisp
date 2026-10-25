@@ -80,17 +80,13 @@ jobs:
       - name: Run Flutter tests
         id: flutter-tests
         run: flutter test --no-pub --reporter expanded
-      - name: Generate screenshot baseline candidates for review
-        if: failure() && steps.flutter-tests.outcome == 'failure'
-        run: flutter test test/screenshots/chat_list_test.dart --no-pub --update-goldens
+
       - name: Upload screenshot failure diagnostics
         if: failure() && steps.flutter-tests.outcome == 'failure'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wisp-screenshot-failures
-          path: |
-            test/screenshots/failures/
-            test/metadata/
+          path: test/screenshots/failures/
           if-no-files-found: warn
           retention-days: 7
 

@@ -27,6 +27,17 @@ page. CI does not deploy a website, upload to an app store, publish a container,
 change application identifiers, or send Matrix notifications. A green build is
 not physical-device or notification-delivery acceptance.
 
+Screenshot baselines under `test/metadata/` reflect Wisp branding and use the
+pinned Flutter version on Ubuntu 24.04 as the canonical renderer. Normal CI
+compares them; it must not automatically regenerate them or increase comparison
+tolerance to clear a failure. Review intentional visual changes before committing
+new baselines. Failed screenshot comparisons are uploaded for diagnosis.
+
+The default build does not enable Firebase. The checked-in iOS Swift lockfiles
+retain the existing CryptoSwift pin but omit inactive Firebase dependency pins;
+the stale graph crashed clean Xcode package resolution. Reintroducing Firebase
+requires deliberately updating the app configuration and resolved graph together.
+
 ## Upstream automation
 
 The inherited deployment, release, Matrix notification, and Flutter-update
