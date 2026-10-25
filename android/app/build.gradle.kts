@@ -35,7 +35,7 @@ configurations.all {
 android {
     namespace = "chat.fluffy.fluffychat"
     // Workaround for https://github.com/juliansteenbakker/flutter_secure_storage/issues/1224
-    compileSdk = 37 //flutter.compileSdkVersion
+    compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -1,283 +1,170 @@
-name: Pull Request Workflow
+name: Wisp CI
 
 on:
   pull_request:
+  push:
+    branches: [main]
   merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wisp-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  code_tests:
-    runs-on: ubuntu-latest
+  checks:
+    name: Analysis and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: webiny/action-conventional-commits@v1.4.2
-      - name: Check licenses
-        uses: fsfe/reuse-action@v6
-      - run: ./scripts/generate-locale-config.sh
-      - run: git diff --exit-code
-      - uses: subosito/flutter-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          flutter-version-file: .fvmrc
-          cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Check for empty translations
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.12'
+      - name: Install check dependencies
+        run: python -m pip install pillow==12.0.0 pyyaml==6.0.3 'reuse[charset-normalizer]==6.2.0'
+      - name: Check workflow and branding contracts
+        run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Check reproducible branding assets
         run: |
-          if grep -rn '": ""' lib/l10n/*.arb; then
-            echo "❌ Found empty translation strings."
-            exit 1
-          fi
-      - run: flutter pub get
-      - name: Check if pubspec.lock is up to date
-        run: git diff --exit-code pubspec.lock
-      - name: Check formatting
-        run: dart format lib/ test/ --set-exit-if-changed
-      - name: Check license compliance
-        run: dart run license_checker check-licenses -c licenses.yaml --problematic
-      - name: Check for unused translations
-        run: |
-          dart pub global activate sweeper
-          dart pub global run sweeper check
-      - run: flutter analyze
-      - name: Search unused dependencies
-        run: |
-          dart pub global activate dependency_validator
-          dart pub global run dependency_validator
-      - run: dart run dart_code_linter:metrics analyze lib --reporter=github
-      - run: dart run dart_code_linter:metrics check-unused-code lib
-      - run: dart run dart_code_linter:metrics check-unused-files lib
-      - run: dart run dart_code_linter:metrics check-unused-l10n lib
-      - name: Check for commented-out Dart code with semicolons
-        run: |
-          if grep -R --include="*.dart" -nE '^[[:space:]]*//[^/<].*;[[:space:]]*$' lib/; then
-            echo ""
-            echo "❌ Found commented-out Dart code ending with semicolon."
-            exit 1
-          fi
-      - name: Add Firebase Messaging
-        run: ./scripts/add-firebase-messaging.sh
-      - run: flutter analyze
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+          from PIL import Image
 
-  flutter_tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version-file: .fvmrc
-          cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - run: flutter pub get
-      - run: dart run golden_screenshot:download_apple_fonts
-      - run: flutter test
+          def pixels(path):
+              with Image.open(path) as image:
+                  return image.mode, image.size, image.tobytes()
 
-  build_debug_apk:
-    needs: [ code_tests ]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/free_up_space
-      - uses: subosito/flutter-action@v2
+          roots = [Path('assets/logo/mini'), Path('android/app/src/main/res'),
+                   Path('ios/Runner/Assets.xcassets')]
+          before = {path: pixels(path) for root in roots for path in root.rglob('*.png')}
+          subprocess.run(['python', 'scripts/generate_wisp_branding.py'], check=True)
+          changed = [str(path) for path, expected in before.items() if pixels(path) != expected]
+          if changed:
+              raise SystemExit('Generated image pixels differ: ' + ', '.join(changed))
+          print('All regenerated image pixels match (PNG compression may vary by platform).')
+          PY
+      - name: Check copyright and license metadata
+        run: reuse lint
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: .fvmrc
           cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Cache Gradle
-        uses: actions/cache@v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Install native test build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y clang cmake ninja-build pkg-config libssl-dev libgtk-3-dev
+      - name: Resolve pinned Dart dependencies
+        run: |
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib test
+      - name: Analyze Flutter application
+        run: flutter analyze --no-pub
+      - name: Prepare native encryption test library
+        run: |
+          version="$(python -c 'import yaml; print(yaml.safe_load(open("pubspec.lock"))["packages"]["vodozemac"]["version"])')"
+          git clone --depth 1 --branch "$version" https://github.com/famedly/dart-vodozemac.git "$RUNNER_TEMP/dart-vodozemac"
+          cp -R "$RUNNER_TEMP/dart-vodozemac/rust" test/rust
+          cargo build --manifest-path test/rust/Cargo.toml
+      - name: Prepare screenshot fonts
+        run: dart run golden_screenshot:download_apple_fonts
+      - name: Run Flutter tests
+        id: flutter-tests
+        run: flutter test --no-pub --reporter expanded
+
+      - name: Upload screenshot failure diagnostics
+        if: failure() && steps.flutter-tests.outcome == 'failure'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
-      - run: ./scripts/add-firebase-messaging.sh
-      - run: flutter build apk --debug --target-platform android-x64
-      - name: Upload Debug APK
-        uses: actions/upload-artifact@v7
+          name: wisp-screenshot-failures
+          path: test/screenshots/failures/
+          if-no-files-found: warn
+          retention-days: 7
+
+  android:
+    name: Android debug APK (ARM64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          name: debug-apk-x64
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version-file: .fvmrc
+          cache: true
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Resolve pinned Dart dependencies
+        run: |
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
+      - name: Build debug APK without Firebase or release credentials
+        run: flutter build apk --debug --target-platform android-arm64 --no-pub
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: wisp-android-debug-arm64
           path: build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
 
-  build_debug_web:
-    needs: [ code_tests ]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version-file: .fvmrc
-          cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - run: rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
-      - run: flutter pub get
-      - name: Prepare web
-        run: ./scripts/prepare-web.sh
-      - run: git diff --exit-code
-      - run: flutter build web
-      - name: Upload Web Build
-        uses: actions/upload-artifact@v7
-        with:
-          name: Web Build
-          path: build/web
-
-  build_debug_linux:
-    needs: [ code_tests ]
-    strategy:
-      matrix:
-        arch: [ x64, arm64 ]
-    runs-on: ${{ matrix.arch == 'arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest'}}
-    steps:
-      - uses: actions/checkout@v7
-      - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install git wget curl clang cmake ninja-build pkg-config libgtk-3-dev libblkid-dev liblzma-dev libjsoncpp-dev cmake-data libsecret-1-dev libsecret-1-0 librhash0 libssl-dev libwebkit2gtk-4.1-dev libpulse-dev -y
-      - run: echo "FLUTTER_VERSION=$(yq '.flutter' < .fvmrc)" >> $GITHUB_ENV
-      - name: Install Flutter
-        run: |
-          git clone --branch ${{ env.FLUTTER_VERSION }} https://github.com/flutter/flutter.git
-          ./flutter/bin/flutter doctor
-      - uses: dtolnay/rust-toolchain@stable
-      - run: ./flutter/bin/flutter pub get
-      - run: ./flutter/bin/flutter build linux --target-platform linux-${{ matrix.arch }}
-
-  build_debug_ios:
-    needs: [ code_tests ]
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version-file: .fvmrc
-          cache: true
-      - name: Use specific XCode version
-        run: sudo xcode-select --switch /Applications/Xcode_26.3.app
-      - uses: dtolnay/rust-toolchain@stable
-      - run: ./scripts/add-firebase-messaging.sh
-      - run: flutter pub get
-      - run: flutter build ios --no-codesign
-
-  build_debug_macos:
-    needs: [ code_tests ]
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version-file: .fvmrc
-          cache: true
-      - name: Use specific XCode version
-        run: sudo xcode-select --switch /Applications/Xcode_26.3.app
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Use ad-hoc code signing
-        run: |
-          sed -i '' \
-            -e 's/CODE_SIGN_IDENTITY = "Apple Development";/CODE_SIGN_IDENTITY = "-";/' \
-            -e 's/CODE_SIGN_STYLE = Automatic;/CODE_SIGN_STYLE = Manual;/' \
-            -e 's/DEVELOPMENT_TEAM = [A-Z0-9]*;/DEVELOPMENT_TEAM = "";/' \
-            macos/Runner.xcodeproj/project.pbxproj
-          /usr/libexec/PlistBuddy -c "Delete :keychain-access-groups" macos/Runner/DebugProfile.entitlements
-      - run: flutter pub get
-      - run: flutter build macos --debug
-
-  build_debug_windows:
-    needs: [ code_tests ]
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version-file: .fvmrc
-          cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - run: choco install innosetup -y
-      - run: flutter pub get
-      - run: flutter build windows --debug
-      - run: ./scripts/package-windows.ps1 -BuildMode Debug
-      - name: Upload Debug Installer
-        uses: actions/upload-artifact@v7
-        with:
-          name: debug-windows-x64-setup
-          path: build/windows/installer/fluffychat-windows-x64-setup.exe
-
-  integration_test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    needs: [ code_tests ]
-    strategy:
-      matrix:
-        api-level: [34]
+  ios:
+    name: iOS simulator app (ARM64, unsigned)
+    runs-on: macos-26
+    timeout-minutes: 45
     env:
-      ANDROID_USER_HOME: /home/runner/.android
-      ANDROID_EMULATOR_HOME: /home/runner/.android
-      ANDROID_AVD_HOME: /home/runner/.android/avd
-      AVD_CONFIG_PATH: "~/.android/avd/test.avd/config.ini"
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
     steps:
-      - uses: actions/checkout@v7
-      - uses: ./.github/actions/free_up_space
-      # https://github.blog/changelog/2023-02-23-hardware-accelerated-android-virtualization-on-actions-windows-and-linux-larger-hosted-runners/
-      - name: Enable KVM group perms
-        run: |
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-      - name: AVD cache
-        uses: actions/cache@v6
-        id: avd-cache
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          path: ~/.android/*
-          key: avd-${{ matrix.api-level }}-integration_docker
-      - name: create AVD and generate snapshot for caching
-        if: steps.avd-cache.outputs.cache-hit != 'true'
-        uses: reactivecircus/android-emulator-runner@d94c3fbe4fe6a29e4a5ba47c12fb47677c73656b
-        with:
-          api-level: ${{ matrix.api-level }}
-          target: google_apis
-          arch: x86_64
-          cores: 4
-          ndk: 28.2.13676358
-          force-avd-creation: false
-          disk-size: 4096M
-          ram-size: 4096M
-          sdcard-path-or-size: 4096M
-          emulator-options: -no-window -wipe-data -accel on -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: |
-            cat ${{ env.AVD_CONFIG_PATH }}
-
-            sed -i.bak 's/hw.lcd.density = .*/hw.lcd.density=420/' ${{ env.AVD_CONFIG_PATH }}
-            sed -i.bak 's/hw.lcd.height = .*/hw.lcd.height=1920/' ${{ env.AVD_CONFIG_PATH }}
-            sed -i.bak 's/hw.lcd.width = .*/hw.lcd.width=1080/' ${{ env.AVD_CONFIG_PATH }}
-
-            if ! grep -q "hw.lcd.density"  ${{ env.AVD_CONFIG_PATH }} && echo "hw.lcd.density = 420" >>  ${{ env.AVD_CONFIG_PATH }}; then :; fi
-            if ! grep -q "hw.lcd.height"  ${{ env.AVD_CONFIG_PATH }} && echo "hw.lcd.height = 1920" >>  ${{ env.AVD_CONFIG_PATH }}; then :; fi
-            if ! grep -q "hw.lcd.width"  ${{ env.AVD_CONFIG_PATH }} && echo "hw.lcd.width = 1080" >>  ${{ env.AVD_CONFIG_PATH }}; then :; fi
-
-            echo "Emulator settings (${{ env.AVD_CONFIG_PATH }})"
-            cat ${{ env.AVD_CONFIG_PATH }}
-            echo "Generated AVD snapshot for caching."
-      - uses: subosito/flutter-action@v2
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           flutter-version-file: .fvmrc
+          architecture: arm64
           cache: true
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Cache Gradle
-        uses: actions/cache@v6
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Show Apple toolchain
+        run: xcodebuild -version
+      - name: Resolve pinned Dart dependencies
+        run: |
+          flutter pub get
+          git diff --exit-code -- pubspec.lock
+      - name: Configure unsigned simulator build
+        run: flutter build ios --simulator --debug --no-codesign --config-only --no-pub
+      - name: Build ARM64 simulator app
+        run: |
+          xcodebuild -workspace ios/Runner.xcworkspace -scheme Runner \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/wisp-derived-data" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build
+      - name: Package simulator app
+        run: |
+          mkdir -p build/ci
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/wisp-derived-data/Build/Products/Debug-iphonesimulator/Runner.app" \
+            build/ci/wisp-ios-simulator-arm64.zip
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
-          restore-keys: gradle-${{ runner.os }}-
-      - name: Prepare Homeserver
-        run: ./scripts/prepare_integration_test.sh
-      - name: Integration tests
-        id: integration_tests
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: ${{ matrix.api-level }}
-          target: google_apis
-          arch: x86_64
-          cores: 16
-          ndk: 28.2.13676358
-          force-avd-creation: false
-          disk-size: 4096M
-          ram-size: 4096M
-          sdcard-path-or-size: 4096M
-          emulator-options: -no-snapshot-save -no-window -wipe-data -accel on -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: flutter test integration_test/mobile_test.dart
+          name: wisp-ios-simulator-arm64
+          path: build/ci/wisp-ios-simulator-arm64.zip
+          if-no-files-found: error
+          retention-days: 7
