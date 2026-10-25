@@ -5,99 +5,90 @@ SPDX-FileCopyrightText: 2019-Present Contributors to FluffyChat
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
-<img src="https://raw.githubusercontent.com/krille-chan/fluffychat/refs/heads/main/assets/logo/img/banner.png">
+# Wisp
 
-[FluffyChat](https://fluffychat.im) is an open source, nonprofit and cute [[matrix](https://matrix.org)] client written in [Flutter](https://flutter.dev). The goal of the app is to create an easy to use instant messenger which is open source and accessible for everyone.
+A personal Matrix client, designed with Hermes in mind.
 
-### Links:
+Wisp is a personal fork of [FluffyChat](https://github.com/krille-chan/fluffychat),
+built with [Flutter](https://flutter.dev) for the [Matrix](https://matrix.org)
+network. This repository is the home for Wisp's branding and personal
+customizations. Wisp is independent of the upstream FluffyChat project.
 
-- 🌐 [[Weblate] Translate FluffyChat into your language](https://hosted.weblate.org/projects/fluffychat/)
-- 🌍 [[m] Join the community](https://matrix.to/#/#fluffy-space:matrix.org)
-- 📰 [[Mastodon] Get updates on social media](https://troet.cafe/@krille)
-- 💝 [[Liberapay] Support FluffyChat development](https://de.liberapay.com/KrilleChritzelius)
+## Features
 
-<a href='https://ko-fi.com/krille' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi5.png?v=3' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+Wisp inherits FluffyChat's Matrix messaging features, including:
 
-### Screenshots:
+- Private and public group chats, channels, and Spaces
+- Text messages, images, files, and voice messages
+- Video calls with Matrix RTC
+- End-to-end encryption, encrypted chat backup, and emoji verification
+- Custom emotes, stickers, and Material You design
+- Push notifications, location sharing, and group moderation
 
-<img src="https://github.com/krille-chan/fluffychat-website/blob/main/public/img/screenshot_mobile.png?raw=true" height="300">
-<img src="https://github.com/krille-chan/fluffychat-website/blob/main/public/img/screenshot_desktop.png?raw=true" height="300">
+## Build from source
 
-# Features
+Use the Flutter version pinned in [`.fvmrc`](.fvmrc) and install
+[Rust](https://www.rust-lang.org/tools/install). Platform-specific Flutter
+build tooling is also required for your target device.
 
-- 📩 Send all kinds of messages, images and files
-- 🤙 Video calls with Matrix RTC
-- 🎙️ Voice messages
-- 📍 Location sharing
-- 🔔 Push notifications
-- 💬 Unlimited private and public group chats
-- 📣 Public channels with thousands of participants
-- 🛠️ Feature rich group moderation including all matrix features
-- 🔍 Discover and join public groups
-- 🎨 Material You design
-- 😄 Custom emotes and stickers
-- 🌌 Spaces
-- 🔐 End to end encryption
-- 🔒 Encrypted chat backup
-- 😀 Emoji verification & cross signing
-... and much more.
-
-
-# Installation
-
-Please visit the website for installation instructions:
-
-- https://fluffychat.im
-
-# Configuration and Mobile Device Management (MDM)
-
-FluffyChat supports configuration via MDM on Android&iOS (since v2.10.0) and via a config.json file on web. You can see the populated configuration for MDM on Android in this file under `/android/app/src/main/res/xml/app_restrictions.xml`.
-An example configuration can be found in the `config.sample.json` file.
-
-# How to build
-
-1. To build FluffyChat you need [Flutter](https://flutter.dev) and [Rust](https://www.rust-lang.org/tools/install)
-
-2. Clone the repo:
+```sh
+git clone https://github.com/KyleMyers001/wisp.git
+cd wisp
+flutter pub get
+flutter run
 ```
-git clone https://github.com/krille-chan/fluffychat.git
-cd fluffychat
-```
-3. Debug on your platform with: `flutter run`
+
+These instructions build this fork. Upstream FluffyChat downloads are not Wisp
+builds.
 
 ### Web
 
-* Execute once before run or build:
-```bash
-./scripts/prepare-web.sh # To install Vodozemac
+Before running or building for the web, prepare the web dependencies:
+
+```sh
+./scripts/prepare-web.sh
+flutter run -d chrome
 ```
 
-* Optionally configure by serving a `config.json` at the same path as fluffychat.
-  An example can be found at `config.sample.json`. All values there are optional.
-  **Please only the values, you really need**. If you e.g. only want
-  to change the default homeserver, then only modify the `defaultHomeserver` key.
+The preparation script uses additional tools, including `yq` and
+`flutter_rust_bridge_codegen` (installed by the script). See
+[`scripts/prepare-web.sh`](scripts/prepare-web.sh) for the preparation steps.
 
-## How to run integration tests
+## Configuration
 
-You need to have docker installed locally! Run the preparation script before every test run:
+On the web, serve a `config.json` alongside Wisp. Start with
+[`config.sample.json`](config.sample.json) and include only the settings you
+want to override, such as `defaultHomeserver`.
+
+The inherited app also supports Mobile Device Management (MDM) configuration on
+Android and iOS. Android's supported restrictions are defined in
+[`app_restrictions.xml`](android/app/src/main/res/xml/app_restrictions.xml).
+
+## Integration tests
+
+With Docker installed and running, prepare the test environment before each run:
 
 ```sh
 ./scripts/prepare_integration_test.sh
-```
-
-Then run all tests with:
-
-```sh
 flutter test integration_test/mobile_test.dart
 ```
 
+## Upstream and credits
 
-# Special thanks
+Wisp builds on the work of Christian Kußowski and the
+[FluffyChat contributors](https://github.com/krille-chan/fluffychat).
+Upstream's [website](https://fluffychat.im),
+[community](https://matrix.to/#/#fluffy-space:matrix.org), and
+[translations](https://hosted.weblate.org/projects/fluffychat/) belong to
+FluffyChat, not Wisp.
 
-* <a href="https://github.com/fabiyamada">Fabiyamada</a> is a graphics designer and has made the fluffychat logo and the banner. Big thanks for her great designs.
+Thanks to Fabiyamada for the original FluffyChat logo and banner, to the
+translators and testers, and to MTRNord, Sorunome, and Advocatux. The
+[Matrix Foundation's emoji translations](https://github.com/matrix-org/matrix-spec/blob/main/data-definitions/sas-emoji.json)
+used for verification are licensed under Apache 2.0.
 
-* Also thanks to all translators and testers! With your help, fluffychat is now available in more than 12 languages.
+## License
 
-* The Matrix Foundation for making and maintaining the [emoji translations](https://github.com/matrix-org/matrix-spec/blob/main/data-definitions/sas-emoji.json) used for emoji verification, licensed Apache 2.0
-
-* Special thanks to MTRNord, Sorunome and Advocatux.
+Wisp retains the upstream [AGPL-3.0-or-later license](LICENSE). Asset and
+third-party license notices are preserved in the repository; see
+[`REUSE.toml`](REUSE.toml) and [`LICENSES`](LICENSES).
