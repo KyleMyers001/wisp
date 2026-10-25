@@ -72,3 +72,21 @@ path = [
 precedence = "aggregate"
 SPDX-FileCopyrightText = "2026-Present Christian Kußowski"
 SPDX-License-Identifier = "LicenseRef-All-Rights-Reserved"
+
+# Wisp source artwork and generated mobile/in-app images (not upstream artwork).
+[[annotations]]
+path = [
+    "assets/branding/wisp/logo.jpg",
+    "assets/logo/mini/logo_mini.png",
+    "assets/logo/mini/logo_mono_mini.png",
+    "android/app/src/main/res/drawable-*/ic_launcher_*.png",
+    "android/app/src/main/res/drawable-*/notifications_icon.png",
+    "android/app/src/main/res/drawable-*/splash.png",
+    "android/app/src/main/res/drawable*/background.png",
+    "android/app/src/main/res/mipmap-*/ic_launcher.png",
+    "ios/Runner/Assets.xcassets/AppIcon.appiconset/*.png",
+    "ios/Runner/Assets.xcassets/LaunchImage.imageset/*.png",
+]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Kyle Myers"
+SPDX-License-Identifier = "AGPL-3.0-or-later"
