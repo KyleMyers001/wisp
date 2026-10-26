@@ -3,6 +3,7 @@
 
 """Run with: python3 -m unittest discover -s scripts -p test_wisp_branding.py."""
 
+import hashlib
 import json
 import plistlib
 import unittest
@@ -16,11 +17,42 @@ ANDROID = "{http://schemas.android.com/apk/res/android}"
 
 
 class MobileBrandingTests(unittest.TestCase):
+    def test_classic_violet_source_preserves_the_approved_mark(self):
+        source = ROOT / "assets/branding/wisp/classic-violet.png"
+        self.assertTrue(source.is_file(), "Selected Classic Violet artwork is missing")
+        self.assertEqual(
+            hashlib.sha256(source.read_bytes()).hexdigest(),
+            "7ba1e00e12b8ce45393cfdc9f205a1b1df5fb11f058ccda7b1c4a408645883b9",
+        )
+        artwork = Image.open(source)
+        self.assertEqual((artwork.mode, artwork.size), ("RGB", (1024, 1024)))
+        self.assertEqual(artwork.getpixel((0, 0)), (124, 103, 228))
+        self.assertEqual(artwork.getpixel((0, 1023)), (38, 19, 134))
+        mark = Image.open(ROOT / "assets/branding/wisp/classic-violet-mark.png")
+        self.assertEqual((mark.mode, mark.size), ("RGBA", artwork.size))
+        original = Image.open(ROOT / "assets/branding/wisp/logo.jpg").convert("RGB")
+        levels = [round(max(0, min(1, (value - 80) / 100)) * 255) for value in range(256)]
+        expected_alpha = original.getchannel("G").point(levels)
+        self.assertEqual(mark.getchannel("A").tobytes(), expected_alpha.tobytes())
+        self.assertEqual(mark.convert("RGB").getextrema(), ((247, 247), (245, 245), (255, 255)))
+        storyboard = ET.parse(ROOT / "ios/Runner/Base.lproj/LaunchScreen.storyboard")
+        color = storyboard.find(".//color[@key='backgroundColor']")
+        assert color is not None
+        self.assertEqual(
+            tuple(round(float(color.attrib[channel]) * 255) for channel in ("red", "green", "blue")),
+            (38, 19, 134),
+        )
+        android_colors = ET.parse(ROOT / "android/app/src/main/res/values/ic_launcher_background.xml")
+        fallback = android_colors.find("color")
+        assert fallback is not None and fallback.text is not None
+        self.assertEqual(fallback.text.lower(), "#261386")
+
     def test_launch_and_in_app_artwork_use_wisp(self):
-        source = Image.open(ROOT / "assets/branding/wisp/logo.jpg").convert("RGB")
+        source = Image.open(ROOT / "assets/branding/wisp/classic-violet.png").convert("RGB")
+        mark = Image.open(ROOT / "assets/branding/wisp/classic-violet-mark.png").convert("RGBA")
         mini = Image.open(ROOT / "assets/logo/mini/logo_mini.png").convert("RGB")
         expected = source.resize((500, 500), Image.Resampling.LANCZOS)
-        self.assertIsNone(ImageChops.difference(mini, expected).getbbox())
+        self.assertIsNone(ImageChops.difference(mini, expected).getbbox(alpha_only=False))
         mono = Image.open(ROOT / "assets/logo/mini/logo_mono_mini.png")
         self.assertEqual(mono.mode, "RGBA")
         self.assertEqual(mono.getchannel("A").getextrema(), (0, 255))
@@ -29,18 +61,18 @@ class MobileBrandingTests(unittest.TestCase):
             image = Image.open(
                 ROOT
                 / f"ios/Runner/Assets.xcassets/LaunchImage.imageset/LaunchImage{suffix}.png"
-            ).convert("RGB")
+            ).convert("RGBA")
             size = 168 * scale
             self.assertEqual(image.size, (size, size))
-            expected = source.resize((size, size), Image.Resampling.LANCZOS)
-            self.assertIsNone(ImageChops.difference(image, expected).getbbox())
+            expected = mark.resize((size, size), Image.Resampling.LANCZOS)
+            self.assertIsNone(ImageChops.difference(image, expected).getbbox(alpha_only=False))
         res = ROOT / "android/app/src/main/res"
         densities = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
         for density, scale in densities.items():
-            splash = Image.open(res / f"drawable-{density}/splash.png").convert("RGB")
+            splash = Image.open(res / f"drawable-{density}/splash.png").convert("RGBA")
             self.assertEqual(splash.size, (round(177 * scale),) * 2)
-            expected = source.resize(splash.size, Image.Resampling.LANCZOS)
-            self.assertIsNone(ImageChops.difference(splash, expected).getbbox())
+            expected = mark.resize(splash.size, Image.Resampling.LANCZOS)
+            self.assertIsNone(ImageChops.difference(splash, expected).getbbox(alpha_only=False))
         for folder in (
             "drawable",
             "drawable-v21",
@@ -48,10 +80,10 @@ class MobileBrandingTests(unittest.TestCase):
             "drawable-night-v21",
         ):
             background = Image.open(res / folder / "background.png").convert("RGB")
-            self.assertEqual(background.getpixel((0, 0)), (3, 57, 69))
+            self.assertEqual(background.getpixel((0, 0)), (38, 19, 134))
 
     def test_android_icons_use_wisp_in_every_density(self):
-        source = Image.open(ROOT / "assets/branding/wisp/logo.jpg").convert("RGB")
+        source = Image.open(ROOT / "assets/branding/wisp/classic-violet.png").convert("RGB")
         res = ROOT / "android/app/src/main/res"
         densities = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
         for density, scale in densities.items():
@@ -60,7 +92,7 @@ class MobileBrandingTests(unittest.TestCase):
                 legacy = Image.open(res / f"mipmap-{density}/ic_launcher.png")
                 expected = source.resize((size, size), Image.Resampling.LANCZOS)
                 self.assertEqual(legacy.mode, "RGB")
-                self.assertIsNone(ImageChops.difference(legacy, expected).getbbox())
+                self.assertIsNone(ImageChops.difference(legacy, expected).getbbox(alpha_only=False))
                 foreground = Image.open(
                     res / f"drawable-{density}/ic_launcher_foreground.png"
                 )
@@ -73,9 +105,16 @@ class MobileBrandingTests(unittest.TestCase):
                     res / f"drawable-{density}/ic_launcher_background.png"
                 ).convert("RGB")
                 self.assertEqual(background.size, foreground.size)
-                self.assertEqual(background.getextrema(), ((3, 3), (57, 57), (69, 69)))
+                self.assertEqual(background.getpixel((0, 0)), (124, 103, 228))
+                self.assertEqual(background.getpixel((0, background.height - 1)), (38, 19, 134))
                 alpha = foreground.getchannel("A")
                 self.assertEqual(alpha.getextrema(), (0, 255))
+                opaque_pixel = next(
+                    pixel for pixel in foreground.getdata()
+                    if isinstance(pixel, tuple) and pixel[3] == 255
+                )
+                assert isinstance(opaque_pixel, tuple)
+                self.assertEqual(opaque_pixel[:3], (247, 245, 255))
                 bounds = alpha.getbbox()
                 assert bounds is not None
                 left, top, right, bottom = bounds
@@ -111,7 +150,7 @@ class MobileBrandingTests(unittest.TestCase):
         self.assertFalse((res / "drawable/ic_launcher_monochrome.xml").exists())
 
     def test_ios_icons_use_the_approved_artwork(self):
-        source = ROOT / "assets/branding/wisp/logo.jpg"
+        source = ROOT / "assets/branding/wisp/classic-violet.png"
         self.assertTrue(source.is_file(), "Approved Wisp source artwork is missing")
         artwork = Image.open(source).convert("RGB")
         catalog = ROOT / "ios/Runner/Assets.xcassets/AppIcon.appiconset"
@@ -125,7 +164,7 @@ class MobileBrandingTests(unittest.TestCase):
                 self.assertEqual(icon.size, (size, size))
                 self.assertEqual(icon.mode, "RGB", "iOS icons must be opaque")
                 expected = artwork.resize((size, size), Image.Resampling.LANCZOS)
-                self.assertIsNone(ImageChops.difference(icon, expected).getbbox())
+                self.assertIsNone(ImageChops.difference(icon, expected).getbbox(alpha_only=False))
 
     def test_visible_mobile_names_are_wisp(self):
         with (ROOT / "ios/Runner/Info.plist").open("rb") as stream:

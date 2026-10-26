@@ -77,6 +77,8 @@ SPDX-License-Identifier = "LicenseRef-All-Rights-Reserved"
 [[annotations]]
 path = [
     "assets/branding/wisp/logo.jpg",
+    "assets/branding/wisp/classic-violet.png",
+    "assets/branding/wisp/classic-violet-mark.png",
     "assets/logo/mini/logo_mini.png",
     "assets/logo/mini/logo_mono_mini.png",
     "android/app/src/main/res/drawable-*/ic_launcher_*.png",
